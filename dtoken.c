@@ -34,6 +34,8 @@
 #include <limits.h>
 #include <sys/time.h>
 #include <arpa/inet.h>
+#include <math.h>
+#include <gmp.h>
 
 #define STR(x) #x
 #define CONCAT(a, b, c) STR(a) "." STR(b) "." STR(c)
@@ -103,18 +105,90 @@ struct token_data
 	int page_id; // The id of the page that was resuted
 };
 
+void add_token_data(mpz_ptr token, struct token_data *data)
+{
+	mpz_t addend;
+	mpz_init_set_str(addend, "1767707668033969", 10);
+	mpz_add(token, token, addend);
+}
+
+char* build(
+	char* buffer,
+	int method,
+	_Bool time_type,
+	long int timestamp,
+	_Bool client_enabled,
+	short int client_protocol,
+	char* client_address,
+	short int client_port,
+	_Bool lb_enabled,
+	short int lb_protocol,
+	char* lb_address,
+	short int lb_port,
+	_Bool server_enabled,
+	short int server_protocol,
+	char* server_address,
+	short int server_port,
+	int user_id,
+	int page_id)
+{
+	struct token_data data;
+
+	data.time_type = time_type;
+	data.timestamp = timestamp;
+
+	data.method = method;
+
+	data.client_enabled = 1;
+	data.client_protocol = client_protocol;
+	data.client_port = client_port;
+
+	data.lb_enabled = 1;
+	data.lb_protocol = lb_protocol;
+	data.lb_port = lb_port;
+
+	data.server_enabled = 1;
+	data.server_protocol = server_protocol;
+	data.server_port = server_port;
+
+	// client address
+	inet_pton(client_protocol, client_address, (client_protocol == AF_INET) ? (void *)&(data.client_ip.v4) : (void *)&(data.client_ip.v6));
+
+	// lb address
+	inet_pton(lb_protocol, lb_address, (lb_protocol == AF_INET) ? (void *)&(data.lb_ip.v4) : (void *)&(data.lb_ip.v6));
+
+	// server address
+	inet_pton(server_protocol, server_address, (server_protocol == AF_INET) ? (void *)&(data.server_ip.v4) : (void *)&(data.server_ip.v6));
+
+	data.user_id = user_id;
+	data.page_id = page_id;
+
+	mpz_t token;
+	mpz_init(token);
+	mpz_clear(token);
+
+	add_token_data(token, &data);
+
+	// Convert to and store base 36 value in buffer
+	char* token_str = mpz_get_str(NULL, 36, token);
+	strcpy(buffer, token_str);
+	free(token_str);
+	mpz_clear(token);
+
+	return buffer;
+}
+
 int main()
 {
 	// Request timestamp
 	_Bool time_type = 0; // 0 = s, 1 = µs
-	long int timestamp = 0;
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
+	long int timestamp = tv.tv_sec;
 
 	// HTTP method
 	int method = GET;
 
-	// Information about the client connection
 	_Bool client_enabled = 0;
 	int client_protocol = AF_INET6;
 	char client_address[INET6_ADDRSTRLEN] = "";
@@ -221,64 +295,50 @@ int main()
 		}
 	}
 
-	// Determine if we want to add client data
-	message = "Add client information to token (yes/no) [no]";
+	// Add client data
+	message = "Enter client IP address (leave empty for none)";
 	printf("%s: ", message);
 	while (fgets(input, sizeof(input), stdin))
 	{
 		input[strcspn(input, "\n")] = '\0';
 
-		if (strcmp(input, "no") == 0 || strcmp(input, "") == 0)
+		if (strcmp(input, "") == 0)
 		{
-			client_enabled = 0;
 			break;
 		}
-		else if (strcmp(input, "yes") == 0)
+
+		struct sockaddr_in sa;
+
+		// For IP validation
+		int result;
+
+		result = inet_pton(AF_INET, input, &(sa.sin_addr));
+
+		// Valid IPv4
+		if (result == 1)
 		{
 			client_enabled = 1;
+			client_protocol = AF_INET;
+			strcpy(client_address, input);
 			break;
 		}
 
-		printf("Invalid option.\n%s: ", message);
-	}
+		result = inet_pton(AF_INET6, input, &(((struct sockaddr_in6 *)&sa)->sin6_addr));
 
-	// Add client data
-	if (client_enabled)
-	{
-		message = "Enter client IP address";
-		printf("%s: ", message);
-		while (fgets(input, sizeof(input), stdin))
+		// Valid IPv6
+		if (result == 1)
 		{
-			input[strcspn(input, "\n")] = '\0';
-
-			struct sockaddr_in sa;
-
-			// For IP validation
-			int result;
-
-			result = inet_pton(AF_INET, input, &(sa.sin_addr));
-
-			// Valid IPv4
-			if (result == 1)
-			{
-				client_protocol = AF_INET;
-				strcpy(client_address, input);
-				break;
-			}
-
-			result = inet_pton(AF_INET6, input, &(((struct sockaddr_in6 *)&sa)->sin6_addr));
-
-			// Valid IPv6
-			if (result == 1)
-			{
-				client_protocol = AF_INET6;
-				strcpy(client_address, input);
-				break;
-			}
-
-			printf("Invalid address.\n%s: ", message);
+			client_enabled = 1;
+			client_protocol = AF_INET6;
+			strcpy(client_address, input);
+			break;
 		}
 
+		printf("Invalid address.\n%s: ", message);
+	}
+
+	if (server_enabled)
+	{
 		message = "Enter client port (leave empty for none)";
 		printf("%s: ", message);
 		while (fgets(input, sizeof(input), stdin))
@@ -302,64 +362,50 @@ int main()
 		}
 	}
 
-	// Determine if we want to add load balancer data
-	message = "Add load balancer information to token (yes/no) [no]";
+	// Add load balancer data
+	message = "Enter load balancer IP address (leave empty for none)";
 	printf("%s: ", message);
 	while (fgets(input, sizeof(input), stdin))
 	{
 		input[strcspn(input, "\n")] = '\0';
 
-		if (strcmp(input, "no") == 0 || strcmp(input, "") == 0)
+		if (strcmp(input, "") == 0)
 		{
-			lb_enabled = 0;
 			break;
 		}
-		else if (strcmp(input, "yes") == 0)
+
+		struct sockaddr_in sa;
+
+		// For IP validation
+		int result;
+
+		result = inet_pton(AF_INET, input, &(sa.sin_addr));
+
+		// Valid IPv4
+		if (result == 1)
 		{
 			lb_enabled = 1;
+			lb_protocol = AF_INET;
+			strcpy(lb_address, input);
 			break;
 		}
 
-		printf("Invalid option.\n%s: ", message);
-	}
+		result = inet_pton(AF_INET6, input, &(((struct sockaddr_in6 *)&sa)->sin6_addr));
 
-	// Add load balancer data
-	if (lb_enabled)
-	{
-		message = "Enter load balancer IP address";
-		printf("%s: ", message);
-		while (fgets(input, sizeof(input), stdin))
+		// Valid IPv6
+		if (result == 1)
 		{
-			input[strcspn(input, "\n")] = '\0';
-
-			struct sockaddr_in sa;
-
-			// For IP validation
-			int result;
-
-			result = inet_pton(AF_INET, input, &(sa.sin_addr));
-
-			// Valid IPv4
-			if (result == 1)
-			{
-				lb_protocol = AF_INET;
-				strcpy(lb_address, input);
-				break;
-			}
-
-			result = inet_pton(AF_INET6, input, &(((struct sockaddr_in6 *)&sa)->sin6_addr));
-
-			// Valid IPv6
-			if (result == 1)
-			{
-				lb_protocol = AF_INET6;
-				strcpy(lb_address, input);
-				break;
-			}
-
-			printf("Invalid address.\n%s: ", message);
+			lb_enabled = 1;
+			lb_protocol = AF_INET6;
+			strcpy(lb_address, input);
+			break;
 		}
 
+		printf("Invalid address.\n%s: ", message);
+	}
+
+	if (server_enabled)
+	{
 		message = "Enter load balancer port (leave empty for none)";
 		printf("%s: ", message);
 		while (fgets(input, sizeof(input), stdin))
@@ -383,64 +429,50 @@ int main()
 		}
 	}
 
-	// Determine if we want to add server data
-	message = "Add web server information to token (yes/no) [no]";
+	// Add server data
+	message = "Enter server IP address (leave empty for none)";
 	printf("%s: ", message);
 	while (fgets(input, sizeof(input), stdin))
 	{
 		input[strcspn(input, "\n")] = '\0';
 
-		if (strcmp(input, "no") == 0 || strcmp(input, "") == 0)
+		if (strcmp(input, "") == 0)
 		{
-			server_enabled = 0;
 			break;
 		}
-		else if (strcmp(input, "yes") == 0)
+
+		struct sockaddr_in sa;
+
+		// For IP validation
+		int result;
+
+		result = inet_pton(AF_INET, input, &(sa.sin_addr));
+
+		// Valid IPv4
+		if (result == 1)
 		{
 			server_enabled = 1;
+			server_protocol = AF_INET;
+			strcpy(server_address, input);
 			break;
 		}
 
-		printf("Invalid option.\n%s: ", message);
-	}
+		result = inet_pton(AF_INET6, input, &(((struct sockaddr_in6 *)&sa)->sin6_addr));
 
-	// Add server data
-	if (server_enabled)
-	{
-		message = "Enter server IP address";
-		printf("%s: ", message);
-		while (fgets(input, sizeof(input), stdin))
+		// Valid IPv6
+		if (result == 1)
 		{
-			input[strcspn(input, "\n")] = '\0';
-
-			struct sockaddr_in sa;
-
-			// For IP validation
-			int result;
-
-			result = inet_pton(AF_INET, input, &(sa.sin_addr));
-
-			// Valid IPv4
-			if (result == 1)
-			{
-				server_protocol = AF_INET;
-				strcpy(server_address, input);
-				break;
-			}
-
-			result = inet_pton(AF_INET6, input, &(((struct sockaddr_in6 *)&sa)->sin6_addr));
-
-			// Valid IPv6
-			if (result == 1)
-			{
-				server_protocol = AF_INET6;
-				strcpy(server_address, input);
-				break;
-			}
-
-			printf("Invalid address.\n%s: ", message);
+			server_enabled = 1;
+			server_protocol = AF_INET6;
+			strcpy(server_address, input);
+			break;
 		}
 
+		printf("Invalid address.\n%s: ", message);
+	}
+
+	if (server_enabled)
+	{
 		message = "Enter server port (leave empty for none)";
 		printf("%s: ", message);
 		while (fgets(input, sizeof(input), stdin))
@@ -517,68 +549,90 @@ int main()
 	{
 		// Output timestamp in seconds
 		//-----------------------------------------------------
-		printf("Timestamp: %ld\n", timestamp);
+		printf("Timestamp:     %ld\n", timestamp);
 	}
 	else
 	{
 		// Output timestamp with microseconds
 		//-----------------------------------------------------
-		printf("Timestamp: %.6f\n", timestamp / 1000000.0);
+		printf("Timestamp:     %.6f\n", timestamp / 1000000.0);
 	}
 
 	if (client_enabled)
 	{
 		// Output client information
 		//-----------------------------------------------------
-		printf("Client:\n");
-		printf("    protocol: %s\n", client_protocol == AF_INET ? "IPv4" : "IPv6");
-		printf("    address: %s\n", client_address);
+		printf("Client:        %s", client_address);
 
 		if (client_port)
 		{
-			printf("    port: %d\n", client_port);
+			printf(":%d", client_port);
 		}
+
+		printf("\n");
 	}
 
 	if (lb_enabled)
 	{
 		// Output load balancer information
 		//-----------------------------------------------------
-		printf("Load balancer:\n");
-		printf("    protocol: %s\n", lb_protocol == AF_INET ? "IPv4" : "IPv6");
-		printf("    address: %s\n", lb_address);
+		printf("Load balancer: %s", lb_address);
 
 		if (lb_port)
 		{
-			printf("    port: %d\n", lb_port);
+			printf(":%d", lb_port);
 		}
+
+		printf("\n");
 	}
 
 	if (server_enabled)
 	{
 		// Output server information
 		//-----------------------------------------------------
-		printf("Server:\n");
-		printf("    protocol: %s\n", server_protocol == AF_INET ? "IPv4" : "IPv6");
-		printf("    address: %s\n", server_address);
+		printf("Server:        %s", server_address);
 
 		if (server_port)
 		{
-			printf("    server_port: %d\n", server_port);
+			printf(":%d", server_port);
 		}
+
+		printf("\n");
 	}
 
 	if (user_id)
 	{
 		// Output user id
 		//-----------------------------------------------------
-		printf("User id: %d\n", user_id);
+		printf("User id:       %d\n", user_id);
 	}
 
 	if (page_id)
 	{
 		// Output page id
 		//-----------------------------------------------------
-		printf("Page id: %d\n", page_id);
+		printf("Page id:       %d\n", page_id);
 	}
+
+	// Build and output token
+	//-----------------------------------------------------
+
+	int buffer_size =
+		VERSION_PATCH_SIZE +
+		VERSION_MINOR_SIZE +
+		VERSION_MAJOR_SIZE +
+		TIME_TYPE_SIZE +
+		TIME_US_SIZE +
+		METHOD_SIZE +
+		USER_ID_SIZE +
+		PAGE_ID_SIZE +
+		((2 + PORT_SIZE) * 3) + // x number of addresses + extra bits for meta
+		((2 + IPv6_SIZE) * 3) + // x number of addresses + extra bits for meta
+		100; // Adding some extra bits for good measure
+
+	char token_buffer[buffer_size];
+
+	char* token = build(token_buffer, method, time_type, timestamp, client_enabled, client_protocol, client_address, client_port, lb_enabled, lb_protocol, lb_address, lb_port, server_enabled, server_protocol, server_address, server_port, user_id, page_id);
+
+	printf("\nToken: %s\n", token);
 }

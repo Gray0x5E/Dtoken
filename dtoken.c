@@ -41,9 +41,9 @@
 #define CONCAT(a, b, c) STR(a) "." STR(b) "." STR(c)
 
 /* Version info for this application */
-#define VERSION_MAJOR 7
-#define VERSION_MINOR 8
-#define VERSION_PATCH 9
+#define VERSION_MAJOR 0
+#define VERSION_MINOR 1
+#define VERSION_PATCH 0
 #define VERSION CONCAT(VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH)
 
 /* Time types */
@@ -105,11 +105,165 @@ struct token_data
 	int page_id; // The id of the page that was resuted
 };
 
+
+void add_port(mpz_ptr token, short int port)
+{
+	if (!port)
+	{
+		// Disabled bit
+		mpz_mul_2exp(token, token, 1);
+		mpz_add_ui(token, token, 0);
+		return;
+	}
+
+	mpz_mul_2exp(token, token, PORT_SIZE);
+	mpz_add_ui(token, token, port);
+
+	// Enabled bit
+	mpz_mul_2exp(token, token, 1);
+	mpz_add_ui(token, token, 1);
+}
+
+void add_address(
+	mpz_ptr token,
+	short int enabled,
+	short int protocol,
+	union { struct in_addr v4; struct in6_addr v6; } *ip
+)
+{
+	if (!enabled)
+	{
+		mpz_mul_2exp(token, token, 1); // 1 bit for status
+		mpz_add_ui(token, token, 0); // 0 for disabled (implicit)
+		return;
+	}
+
+	if (protocol == AF_INET)
+	{
+		mpz_mul_2exp(token, token, IPv4_SIZE);
+		mpz_add_ui(token, token, ntohl((unsigned long)ip->v4.s_addr));
+
+		// Add protocol bit
+		mpz_mul_2exp(token, token, 1);
+		mpz_add_ui(token, token, INET4);
+	}
+	else // IPv6
+	{
+		mpz_mul_2exp(token, token, IPv6_SIZE); // 128 bits reserved for method
+
+		// Import IPv6 address into temporary variable
+		mpz_t ipv6_addr;
+		mpz_init(ipv6_addr);
+		mpz_import(ipv6_addr, sizeof(ip->v6.s6_addr), 1, sizeof(ip->v6.s6_addr[0]), 0, 0, ip->v6.s6_addr);
+
+		// Add imported address to token
+		mpz_add(token, token, ipv6_addr);
+
+		// Clear temporary variable
+		mpz_clear(ipv6_addr);
+
+		// protocol bit
+		mpz_mul_2exp(token, token, 1);
+		mpz_add_ui(token, token, INET6);
+	}
+
+	// Add enabled bit
+	mpz_mul_2exp(token, token, 1);
+	mpz_add_ui(token, token, 1);
+}
+
 void add_token_data(mpz_ptr token, struct token_data *data)
 {
-	mpz_t addend;
-	mpz_init_set_str(addend, "1767707668033969", 10);
-	mpz_add(token, token, addend);
+	//mpz_add_ui(token, token, 1);
+
+	// Add page id
+	if (!data->page_id)
+	{
+		mpz_mul_2exp(token, token, 1);
+		mpz_add_ui(token, token, 0);
+	}
+	else
+	{
+		mpz_mul_2exp(token, token, PAGE_ID_SIZE);
+		mpz_add_ui(token, token, data->page_id);
+		mpz_mul_2exp(token, token, 1);
+		mpz_add_ui(token, token, 1);
+	}
+
+	// Add user id
+	if (!data->user_id)
+	{
+		mpz_mul_2exp(token, token, 1);
+		mpz_add_ui(token, token, 0);
+	}
+	else
+	{
+		mpz_mul_2exp(token, token, USER_ID_SIZE);
+		mpz_add_ui(token, token, data->user_id);
+		mpz_mul_2exp(token, token, 1);
+		mpz_add_ui(token, token, 1);
+	}
+
+	// Server
+	if (data->server_enabled)
+	{
+		add_port(token, data->server_port);
+	}
+	add_address(token, data->server_enabled, data->server_protocol, (void *)&(data->server_ip));
+
+	// LB
+	if (data->lb_enabled)
+	{
+		add_port(token, data->lb_port);
+	}
+	add_address(token, data->lb_enabled, data->lb_protocol, (void *)&(data->lb_ip));
+
+	// Client
+	if (data->client_enabled)
+	{
+		add_port(token, data->client_port);
+	}
+	add_address(token, data->client_enabled, data->client_protocol, (void *)&(data->client_ip));
+
+	// Add method
+	mpz_mul_2exp(token, token, METHOD_SIZE); // 4 bits reserved for method
+	mpz_add_ui(token, token, data->method);
+
+	// Add timestamp
+	if (data->time_type == 0)
+	{
+		// 32 bits for short timestamp
+		mpz_mul_2exp(token, token, TIME_S_SIZE);
+		// add timestamp
+		mpz_add_ui(token, token, data->timestamp);
+		// shift 1 bit left and leave bit zero for type seconds
+		mpz_mul_2exp(token, token, TIME_TYPE_SIZE);
+		// add 0 for type µs
+		mpz_add_ui(token, token, 0);
+	}
+	else
+	{
+		// 32 bits for short timestamp
+		mpz_mul_2exp(token, token, TIME_US_SIZE);
+		// add timestamp
+		mpz_add_ui(token, token, data->timestamp);
+		// shift 1 bit left for time type bit
+		mpz_mul_2exp(token, token, TIME_TYPE_SIZE);
+		// add 1 for type µs
+		mpz_add_ui(token, token, 1);
+	}
+
+	// add major version
+	mpz_mul_2exp(token, token, VERSION_MAJOR_SIZE);
+	mpz_add_ui(token, token, VERSION_MAJOR);
+
+	// add minor version
+	mpz_mul_2exp(token, token, VERSION_MINOR_SIZE);
+	mpz_add_ui(token, token, VERSION_MINOR);
+
+	// add path version
+	mpz_mul_2exp(token, token, VERSION_PATCH_SIZE);
+	mpz_add_ui(token, token, VERSION_PATCH);
 }
 
 char* build(
@@ -139,17 +293,20 @@ char* build(
 
 	data.method = method;
 
-	data.client_enabled = 1;
+	data.client_enabled = client_enabled;
 	data.client_protocol = client_protocol;
 	data.client_port = client_port;
 
-	data.lb_enabled = 1;
+	data.lb_enabled = lb_enabled;
 	data.lb_protocol = lb_protocol;
 	data.lb_port = lb_port;
 
-	data.server_enabled = 1;
+	data.server_enabled = server_enabled;
 	data.server_protocol = server_protocol;
 	data.server_port = server_port;
+
+	data.user_id = user_id;
+	data.page_id = page_id;
 
 	// client address
 	inet_pton(client_protocol, client_address, (client_protocol == AF_INET) ? (void *)&(data.client_ip.v4) : (void *)&(data.client_ip.v6));
@@ -189,22 +346,28 @@ int main()
 	// HTTP method
 	int method = GET;
 
+	// Information about the client connection
 	_Bool client_enabled = 0;
-	int client_protocol = AF_INET6;
+	int client_protocol = AF_INET;
 	char client_address[INET6_ADDRSTRLEN] = "";
 	int client_port = 0;
 
+	// Information about load balancer connection
 	_Bool lb_enabled = 0;
 	short int lb_protocol = AF_INET;
 	char lb_address[INET6_ADDRSTRLEN] = "";
 	short int lb_port = 0;
 
+	// Information about web server connection
 	_Bool server_enabled = 0;
 	short int server_protocol = AF_INET;
 	char server_address[INET6_ADDRSTRLEN] = "";
 	short int server_port = 0;
 
+	// Id of user requesting page
 	int user_id = 0;
+
+	// Id of page being requested
 	int page_id = 0;
 
 	char input[45];
@@ -337,7 +500,7 @@ int main()
 		printf("Invalid address.\n%s: ", message);
 	}
 
-	if (server_enabled)
+	if (client_enabled)
 	{
 		message = "Enter client port (leave empty for none)";
 		printf("%s: ", message);
@@ -404,7 +567,7 @@ int main()
 		printf("Invalid address.\n%s: ", message);
 	}
 
-	if (server_enabled)
+	if (lb_enabled)
 	{
 		message = "Enter load balancer port (leave empty for none)";
 		printf("%s: ", message);

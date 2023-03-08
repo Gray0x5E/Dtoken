@@ -1,0 +1,9 @@
+# Ignore everything
+*
+
+# Except for these files
+!.gitignore
+!config.m4
+!dtoken.c
+!dtoken.h
+!dtoken_ext.c

@@ -18,14 +18,13 @@
  *
  * This file contains the implementation of Dtoken: a unique request token that
  * contains various information about a web request. The token includes details
- * such as the time, client and server information, and user and page IDs, and
- * can be used for logging and debugging web requests.
+ * such as the time, client and server information, and optional generic ids,
+ * and can be used for logging and debugging web requests.
  *
  * Dtoken is implemented as a PHP extension, making it easy to integrate into
  * web applications. By generating a unique token for each request, Dtoken can
  * help developers track down issues and debug problems with their web
  * applications.
- *
  */
 
 #include <stdio.h>
@@ -36,76 +35,16 @@
 #include <arpa/inet.h>
 #include <math.h>
 #include <gmp.h>
+#include "dtoken.h"
 
-#define STR(x) #x
-#define CONCAT(a, b, c) STR(a) "." STR(b) "." STR(c)
-
-/* Version info for this application */
-#define VERSION_MAJOR 0
-#define VERSION_MINOR 1
-#define VERSION_PATCH 0
-#define VERSION CONCAT(VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH)
-
-/* Time types */
-#define TIME_S 0
-#define TIME_US 1
-
-/* HTTP methods */
-#define GET 1
-#define POST 2
-#define PUT 3
-#define DELETE 4
-#define HEAD 5
-#define CONNECT 6
-#define OPTIONS 7
-#define TRACE 8
-#define PATCH 9
-
-/* Bit sizes of the various token segments */
-#define VERSION_PATCH_SIZE 4
-#define VERSION_MINOR_SIZE 8
-#define VERSION_MAJOR_SIZE 4
-#define TIME_TYPE_SIZE 1
-#define TIME_S_SIZE 32
-#define TIME_US_SIZE 52
-#define METHOD_SIZE 4
-#define USER_ID_SIZE 24
-#define PAGE_ID_SIZE 16
-#define PORT_SIZE 16
-#define IPv4_SIZE 32
-#define IPv6_SIZE 128
-
-#define INET4 0 /* bit to store for AF_INET  */
-#define INET6 1 /* bit to store for AF_INET6 */
-
-// This struct represents the Dtoken data that will be encoded
-struct token_data
-{
-	short int time_type; // Format used for the timestamp: 0 = seconds, 1 = µs
-	long int timestamp; // The timestamp of the request, in either seconds or µs
-
-	int method; // Use predefined macro constants (GET, POST, PUT, etc.)
-
-	short int client_enabled; // Whether client information is included in token
-	short int client_protocol; // Client address protocol (0 = IPv4, 1 = IPv6)
-	union { struct in_addr v4; struct in6_addr v6; } client_ip;
-	short int client_port; // Port client is speaking from
-
-	short int lb_enabled; // Whether load balancer information is included in token
-	short int lb_protocol; // LB address protocol (0 = IPv4, 1 = IPv6)
-	union { struct in_addr v4; struct in6_addr v6; } lb_ip;
-	short int lb_port; // Port load balancer is speaking from
-
-	short int server_enabled; // Whether web server information is included in token
-	short int server_protocol; // Server address protocol (0 = IPv4, 1 = IPv6)
-	union { struct in_addr v4; struct in6_addr v6; } server_ip;
-	short int server_port; // Port connected to on the web server
-
-	int user_id; // The id of the user that requested the page
-	int page_id; // The id of the page that was resuted
-};
-
-
+/**
+ * Add input port to the given token
+ *
+ * @param mpz_t* token The token to add the port to.
+ * @param short int port The port to add.
+ *
+ * @return void
+ */
 void add_port(mpz_ptr token, short int port)
 {
 	if (!port)
@@ -124,6 +63,16 @@ void add_port(mpz_ptr token, short int port)
 	mpz_add_ui(token, token, 1);
 }
 
+/**
+ * Add input address to the given token
+ *
+ * @param mpz_t* token The token to add the address to.
+ * @param short int enabled Whether the address is enabled or not.
+ * @param short int protocol The protocol used by the address (AF_INET or AF_INET6).
+ * @param union { struct in_addr v4; struct in6_addr v6; }* ip The IP address to add, represented as a struct in_addr or struct in6_addr depending on the protocol.
+ *
+ * @return void
+ */
 void add_address(
 	mpz_ptr token,
 	short int enabled,
@@ -172,34 +121,40 @@ void add_address(
 	mpz_add_ui(token, token, 1);
 }
 
+/**
+ * Add token data to the given token
+ *
+ * @param mpz_t* token The token to add the data to.
+ * @param struct token_data* data The token data to add.
+ *
+ * @return void
+ */
 void add_token_data(mpz_ptr token, struct token_data *data)
 {
-	//mpz_add_ui(token, token, 1);
-
-	// Add page id
-	if (!data->page_id)
+	// Add second generic id
+	if (!data->id2)
 	{
 		mpz_mul_2exp(token, token, 1);
 		mpz_add_ui(token, token, 0);
 	}
 	else
 	{
-		mpz_mul_2exp(token, token, PAGE_ID_SIZE);
-		mpz_add_ui(token, token, data->page_id);
+		mpz_mul_2exp(token, token, ID2_SIZE);
+		mpz_add_ui(token, token, data->id2);
 		mpz_mul_2exp(token, token, 1);
 		mpz_add_ui(token, token, 1);
 	}
 
-	// Add user id
-	if (!data->user_id)
+	// Add first generic id
+	if (!data->id1)
 	{
 		mpz_mul_2exp(token, token, 1);
 		mpz_add_ui(token, token, 0);
 	}
 	else
 	{
-		mpz_mul_2exp(token, token, USER_ID_SIZE);
-		mpz_add_ui(token, token, data->user_id);
+		mpz_mul_2exp(token, token, ID1_SIZE);
+		mpz_add_ui(token, token, data->id1);
 		mpz_mul_2exp(token, token, 1);
 		mpz_add_ui(token, token, 1);
 	}
@@ -266,6 +221,30 @@ void add_token_data(mpz_ptr token, struct token_data *data)
 	mpz_add_ui(token, token, VERSION_PATCH);
 }
 
+/**
+ * Builds a token using the given data and returns it as a base 36 encoded string
+ *
+ * @param char* buffer The buffer to use for storing the token string.
+ * @param int method The method used to generate the token.
+ * @param _Bool time_type The precision of the timestamp (0 for seconds, 1 for microseconds).
+ * @param long int timestamp The timestamp to add to the token.
+ * @param _Bool client_enabled Whether client information should be included in the token.
+ * @param short int client_protocol The protocol used by the client address (AF_INET or AF_INET6).
+ * @param char* client_address The client IP address to include in the token.
+ * @param short int client_port The client port to include in the token.
+ * @param _Bool lb_enabled Whether load balancer information should be included in the token.
+ * @param short int lb_protocol The protocol used by the load balancer address (AF_INET or AF_INET6).
+ * @param char * lb_address The load balancer IP address to include in the token.
+ * @param short int lb_port The load balancer port to include in the token.
+ * @param _Bool server_enabled Whether server information should be included in the token.
+ * @param short int server_protocol The protocol used by the server address (AF_INET or AF_INET6).
+ * @param char* server_address The server IP address to include in the token.
+ * @param short int server_port The server port to include in the token.
+ * @param int id1 Some generic associated id to store in the token.
+ * @param int id2 Another generic associated id to store in the token.
+ *
+ * @return char* The built token as a string.
+ */
 char* build(
 	char* buffer,
 	int method,
@@ -283,8 +262,8 @@ char* build(
 	short int server_protocol,
 	char* server_address,
 	short int server_port,
-	int user_id,
-	int page_id)
+	int id1,
+	int id2)
 {
 	struct token_data data;
 
@@ -305,8 +284,8 @@ char* build(
 	data.server_protocol = server_protocol;
 	data.server_port = server_port;
 
-	data.user_id = user_id;
-	data.page_id = page_id;
+	data.id1 = id1;
+	data.id2 = id2;
 
 	// client address
 	inet_pton(client_protocol, client_address, (client_protocol == AF_INET) ? (void *)&(data.client_ip.v4) : (void *)&(data.client_ip.v6));
@@ -317,8 +296,8 @@ char* build(
 	// server address
 	inet_pton(server_protocol, server_address, (server_protocol == AF_INET) ? (void *)&(data.server_ip.v4) : (void *)&(data.server_ip.v6));
 
-	data.user_id = user_id;
-	data.page_id = page_id;
+	data.id1 = id1;
+	data.id2 = id2;
 
 	mpz_t token;
 	mpz_init(token);
@@ -335,6 +314,11 @@ char* build(
 	return buffer;
 }
 
+/*
+ * Command line tool for generating tokens using the dtoken extension
+ *
+ * @return int Returns 0 on success, or 1 on failure.
+ */
 int main()
 {
 	// Request timestamp
@@ -364,11 +348,11 @@ int main()
 	char server_address[INET6_ADDRSTRLEN] = "";
 	short int server_port = 0;
 
-	// Id of user requesting page
-	int user_id = 0;
+	// Generic id 1
+	int id1 = 0;
 
-	// Id of page being requested
-	int page_id = 0;
+	// Generic id 2
+	int id2 = 0;
 
 	char input[45];
 	char* message;
@@ -407,51 +391,15 @@ int main()
 		{
 			break;
 		}
-		else if (strcmp(input, "GET") == 0)
-		{
-			method = GET;
-			break;
-		}
-		else if (strcmp(input, "POST") == 0)
-		{
-			method = POST;
-			break;
-		}
-		else if (strcmp(input, "PUT") == 0)
-		{
-			method = PUT;
-			break;
-		}
-		else if (strcmp(input, "DELETE") == 0)
-		{
-			method = DELETE;
-			break;
-		}
-		else if (strcmp(input, "HEAD") == 0)
-		{
-			method = HEAD;
-			break;
-		}
-		else if (strcmp(input, "CONNECT") == 0)
-		{
-			method = CONNECT;
-			break;
-		}
-		else if (strcmp(input, "OPTIONS") == 0)
-		{
-			method = OPTIONS;
-			break;
-		}
-		else if (strcmp(input, "TRACE") == 0)
-		{
-			method = TRACE;
-			break;
-		}
-		else if (strcmp(input, "PATCH") == 0)
-		{
-			method = PATCH;
-			break;
-		}
+		else if (strcmp(input, "GET") == 0)     { method = GET;     break; }
+		else if (strcmp(input, "POST") == 0)    { method = POST;    break; }
+		else if (strcmp(input, "PUT") == 0)     { method = PUT;     break; }
+		else if (strcmp(input, "DELETE") == 0)  { method = DELETE;  break; }
+		else if (strcmp(input, "HEAD") == 0)    { method = HEAD;    break; }
+		else if (strcmp(input, "CONNECT") == 0) { method = CONNECT; break; }
+		else if (strcmp(input, "OPTIONS") == 0) { method = OPTIONS; break; }
+		else if (strcmp(input, "TRACE") == 0)   { method = TRACE;   break; }
+		else if (strcmp(input, "PATCH") == 0)   { method = PATCH;   break; }
 		else
 		{
 			printf("Invalid option.\n%s: ", message);
@@ -659,8 +607,8 @@ int main()
 		}
 	}
 
-	// Set user id
-	message = "Enter user id (leave empty for none)";
+	// Set generic id 1
+	message = "Enter generic id 1 (leave empty for none)";
 	printf("%s: ", message);
 	while (fgets(input, sizeof(input), stdin))
 	{
@@ -674,15 +622,15 @@ int main()
 		int entered_id = atoi(input);
 		if (entered_id > 0 && entered_id <= INT_MAX)
 		{
-			user_id = entered_id;
+			id1 = entered_id;
 			break;
 		}
 
 		printf("Invalid option.\n%s: ", message);
 	}
 
-	// Set page id
-	message = "Enter page id (leave empty for none)";
+	// Set generic id 2
+	message = "Enter generic id 2 (leave empty for none)";
 	printf("%s: ", message);
 	while (fgets(input, sizeof(input), stdin))
 	{
@@ -696,7 +644,7 @@ int main()
 		int entered_id = atoi(input);
 		if (entered_id > 0 && entered_id <= INT_MAX)
 		{
-			page_id = entered_id;
+			id2 = entered_id;
 			break;
 		}
 
@@ -763,18 +711,18 @@ int main()
 		printf("\n");
 	}
 
-	if (user_id)
+	if (id1)
 	{
-		// Output user id
+		// Output generic id 1
 		//-----------------------------------------------------
-		printf("User id:       %d\n", user_id);
+		printf("Generic id 1:       %d\n", id1);
 	}
 
-	if (page_id)
+	if (id2)
 	{
-		// Output page id
+		// Output generic id 2
 		//-----------------------------------------------------
-		printf("Page id:       %d\n", page_id);
+		printf("Generic id 2:       %d\n", id2);
 	}
 
 	// Build and output token
@@ -787,15 +735,15 @@ int main()
 		TIME_TYPE_SIZE +
 		TIME_US_SIZE +
 		METHOD_SIZE +
-		USER_ID_SIZE +
-		PAGE_ID_SIZE +
+		ID1_SIZE +
+		ID2_SIZE +
 		((2 + PORT_SIZE) * 3) + // x number of addresses + extra bits for meta
 		((2 + IPv6_SIZE) * 3) + // x number of addresses + extra bits for meta
 		100; // Adding some extra bits for good measure
 
-	char token_buffer[buffer_size];
+	char token_buffer[(int)ceil(buffer_size / 8)];
 
-	char* token = build(token_buffer, method, time_type, timestamp, client_enabled, client_protocol, client_address, client_port, lb_enabled, lb_protocol, lb_address, lb_port, server_enabled, server_protocol, server_address, server_port, user_id, page_id);
+	char* token = build(token_buffer, method, time_type, timestamp, client_enabled, client_protocol, client_address, client_port, lb_enabled, lb_protocol, lb_address, lb_port, server_enabled, server_protocol, server_address, server_port, id1, id2);
 
 	printf("\nToken: %s\n", token);
 }

@@ -77,31 +77,123 @@
 #define INET4 0 /* bit to store for AF_INET  */
 #define INET6 1 /* bit to store for AF_INET6 */
 
-// This struct represents the Dtoken data that will be encoded
+/**
+ * Represents the data included in a Dtoken request token
+ *
+ * @struct token_data
+ *
+ * @param short int time_type The format used for the timestamp: 0 = seconds, 1 = microseconds
+ * @param long int timestamp The timestamp of the request, in either seconds or microseconds
+ * @param int method The HTTP method used for the request
+ * @param short int client_enabled Whether client information is included in the token
+ * @param short int client_protocol The client address protocol (0 = IPv4, 1 = IPv6)
+ * @param union { struct in_addr v4; struct in6_addr v6; } client_ip The client IP address
+ * @param short int client_port The port the client is speaking from
+ * @param short int lb_enabled Whether load balancer information is included in the token
+ * @param short int lb_protocol The load balancer address protocol (0 = IPv4, 1 = IPv6)
+ * @param union { struct in_addr v4; struct in6_addr v6; } lb_ip The load balancer IP address
+ * @param short int lb_port The port the load balancer is speaking from
+ * @param short int server_enabled Whether web server information is included in the token
+ * @param short int server_protocol The server address protocol (0 = IPv4, 1 = IPv6)
+ * @param union { struct in_addr v4; struct in6_addr v6; } server_ip The web server IP address
+ * @param short int server_port The port connected to on the web server
+ * @param int id1 Generic id (e.g. user id)
+ * @param int id2 Generic id (e.g. page id)
+ */
 struct token_data
 {
-	short int time_type; // Format used for the timestamp: 0 = seconds, 1 = µs
-	long int timestamp; // The timestamp of the request, in either seconds or µs
-
-	int method; // Use predefined macro constants (GET, POST, PUT, etc.)
-
-	short int client_enabled; // Whether client information is included in token
-	short int client_protocol; // Client address protocol (0 = IPv4, 1 = IPv6)
+	short int time_type;
+	long int timestamp;
+	int method;
+	short int client_enabled;
+	short int client_protocol;
 	union { struct in_addr v4; struct in6_addr v6; } client_ip;
-	short int client_port; // Port client is speaking from
-
-	short int lb_enabled; // Whether load balancer information is included in token
-	short int lb_protocol; // LB address protocol (0 = IPv4, 1 = IPv6)
+	short int client_port;
+	short int lb_enabled;
+	short int lb_protocol;
 	union { struct in_addr v4; struct in6_addr v6; } lb_ip;
-	short int lb_port; // Port load balancer is speaking from
-
-	short int server_enabled; // Whether web server information is included in token
-	short int server_protocol; // Server address protocol (0 = IPv4, 1 = IPv6)
+	short int lb_port;
+	short int server_enabled;
+	short int server_protocol;
 	union { struct in_addr v4; struct in6_addr v6; } server_ip;
-	short int server_port; // Port connected to on the web server
-
-	int id1; // Generic id: for instance id of the user that requested the page
-	int id2; // Generic id: for instance the id of the page that was resuted
+	short int server_port;
+	int id1;
+	int id2;
 };
+
+/**
+ * Adds a port number to the given token
+ *
+ * @param mpz_ptr token The token to add the port number to
+ * @param short int port The port number to add
+ */
+void add_port(mpz_ptr token, short int port);
+
+/**
+ * Adds an address to the given token
+ *
+ * @param mpz_ptr token The token to add the address to
+ * @param short int enabled Whether the address is enabled or not
+ * @param short int protocol The protocol used by the address (IPv4 or IPv6)
+ * @param void* ip The IP address to add
+ */
+void add_address(
+	mpz_ptr token,
+	short int enabled,
+	short int protocol,
+	void* ip
+);
+
+/**
+ * Adds token data to the given token
+ *
+ * @param mpz_ptr token The token to add the data to
+ * @param struct token_data data The data to add
+ */
+void add_token_data(mpz_ptr token, struct token_data *data);
+
+ /**
+ * Builds a request token using the given parameters
+ *
+ * @param char* buffer The buffer to store the token in
+ * @param int method The HTTP method used for the request (see macros for mapping)
+ * @param _Bool time_type The type of timestamp used (second (0) or microsecond (1) precision)
+ * @param long int timestamp The timestamp of the request
+ * @param _Bool client_enabled Whether the client address is enabled or not
+ * @param short int client_protocol The protocol used by the client address (IPv4 or IPv6)
+ * @param char* client_address The IP address of the client
+ * @param short int client_port The port number used by the client
+ * @param _Bool lb_enabled Whether the load balancer address is enabled or not
+ * @param short int lb_protocol The protocol used by the load balancer address (IPv4 or IPv6)
+ * @param char* lb_address The IP address of the load balancer
+ * @param short int lb_port The port number used by the load balancer
+ * @param _Bool server_enabled Whether the server address is enabled or not
+ * @param short int server_protocol The protocol used by the server address (IPv4 or IPv6)
+ * @param char* server_address The IP address of the server
+ * @param short int server_port The port number used by the server
+ * @param int id1 The first generic id value to include in the token
+ * @param int id2 The second generic id value to include in the token
+ *
+ * @return char* The generated request token as base 36
+ */
+char* build(
+	char* buffer,
+	int method,
+	_Bool time_type,
+	long int timestamp,
+	_Bool client_enabled,
+	short int client_protocol,
+	char* client_address,
+	short int client_port,
+	_Bool lb_enabled,
+	short int lb_protocol,
+	char* lb_address,
+	short int lb_port,
+	_Bool server_enabled,
+	short int server_protocol,
+	char* server_address,
+	short int server_port,
+	int id1,
+	int id2);
 
 #endif /* DTOKEN_H */

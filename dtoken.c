@@ -40,8 +40,8 @@
 /**
  * Add input port to the given token
  *
- * @param mpz_t* token The token to add the port to.
- * @param short int port The port to add.
+ * @param mpz_t* token The token to add the port to
+ * @param short int port The port to add
  *
  * @return void
  */
@@ -66,10 +66,10 @@ void add_port(mpz_ptr token, short int port)
 /**
  * Add input address to the given token
  *
- * @param mpz_t* token The token to add the address to.
- * @param short int enabled Whether the address is enabled or not.
- * @param short int protocol The protocol used by the address (AF_INET or AF_INET6).
- * @param union { struct in_addr v4; struct in6_addr v6; }* ip The IP address to add, represented as a struct in_addr or struct in6_addr depending on the protocol.
+ * @param mpz_t* token The token to add the address to
+ * @param short int enabled Whether the address is enabled or not
+ * @param short int protocol The protocol used by the address (AF_INET or AF_INET6)
+ * @param void* ip The IP address to add, represented as a struct in_addr or struct in6_addr depending on the protocol
  *
  * @return void
  */
@@ -77,9 +77,12 @@ void add_address(
 	mpz_ptr token,
 	short int enabled,
 	short int protocol,
-	union { struct in_addr v4; struct in6_addr v6; } *ip
+	void* ip
 )
 {
+//union { struct in_addr v4; struct in6_addr v6; }* ip = (union { struct in_addr v4; struct in6_addr v6; }*) ipa;
+
+
 	if (!enabled)
 	{
 		mpz_mul_2exp(token, token, 1); // 1 bit for status
@@ -89,8 +92,9 @@ void add_address(
 
 	if (protocol == AF_INET)
 	{
+		union { struct in_addr v4; struct in6_addr v6; }* _ip = ip;
 		mpz_mul_2exp(token, token, IPv4_SIZE);
-		mpz_add_ui(token, token, ntohl((unsigned long)ip->v4.s_addr));
+		mpz_add_ui(token, token, ntohl((unsigned long)_ip->v4.s_addr));
 
 		// Add protocol bit
 		mpz_mul_2exp(token, token, 1);
@@ -98,12 +102,13 @@ void add_address(
 	}
 	else // IPv6
 	{
+		union { struct in_addr v4; struct in6_addr v6; }* _ip = ip;
 		mpz_mul_2exp(token, token, IPv6_SIZE); // 128 bits reserved for method
 
 		// Import IPv6 address into temporary variable
 		mpz_t ipv6_addr;
 		mpz_init(ipv6_addr);
-		mpz_import(ipv6_addr, sizeof(ip->v6.s6_addr), 1, sizeof(ip->v6.s6_addr[0]), 0, 0, ip->v6.s6_addr);
+		mpz_import(ipv6_addr, sizeof(_ip->v6.s6_addr), 1, sizeof(_ip->v6.s6_addr[0]), 0, 0, _ip->v6.s6_addr);
 
 		// Add imported address to token
 		mpz_add(token, token, ipv6_addr);
@@ -124,8 +129,8 @@ void add_address(
 /**
  * Add token data to the given token
  *
- * @param mpz_t* token The token to add the data to.
- * @param struct token_data* data The token data to add.
+ * @param mpz_t* token The token to add the data to
+ * @param struct token_data* data The token data to add
  *
  * @return void
  */
@@ -224,26 +229,26 @@ void add_token_data(mpz_ptr token, struct token_data *data)
 /**
  * Builds a token using the given data and returns it as a base 36 encoded string
  *
- * @param char* buffer The buffer to use for storing the token string.
- * @param int method The method used to generate the token.
- * @param _Bool time_type The precision of the timestamp (0 for seconds, 1 for microseconds).
- * @param long int timestamp The timestamp to add to the token.
- * @param _Bool client_enabled Whether client information should be included in the token.
- * @param short int client_protocol The protocol used by the client address (AF_INET or AF_INET6).
- * @param char* client_address The client IP address to include in the token.
- * @param short int client_port The client port to include in the token.
- * @param _Bool lb_enabled Whether load balancer information should be included in the token.
- * @param short int lb_protocol The protocol used by the load balancer address (AF_INET or AF_INET6).
- * @param char * lb_address The load balancer IP address to include in the token.
- * @param short int lb_port The load balancer port to include in the token.
- * @param _Bool server_enabled Whether server information should be included in the token.
- * @param short int server_protocol The protocol used by the server address (AF_INET or AF_INET6).
- * @param char* server_address The server IP address to include in the token.
- * @param short int server_port The server port to include in the token.
- * @param int id1 Some generic associated id to store in the token.
- * @param int id2 Another generic associated id to store in the token.
+ * @param char* buffer The buffer to use for storing the token string
+ * @param int method The method used to generate the token
+ * @param _Bool time_type The precision of the timestamp (0 for seconds, 1 for microseconds)
+ * @param long int timestamp The timestamp to add to the token
+ * @param _Bool client_enabled Whether client information should be included in the token
+ * @param short int client_protocol The protocol used by the client address (AF_INET or AF_INET6)
+ * @param char* client_address The client IP address to include in the token
+ * @param short int client_port The client port to include in the token
+ * @param _Bool lb_enabled Whether load balancer information should be included in the token
+ * @param short int lb_protocol The protocol used by the load balancer address (AF_INET or AF_INET6)
+ * @param char * lb_address The load balancer IP address to include in the token
+ * @param short int lb_port The load balancer port to include in the token
+ * @param _Bool server_enabled Whether server information should be included in the token
+ * @param short int server_protocol The protocol used by the server address (AF_INET or AF_INET6)
+ * @param char* server_address The server IP address to include in the token
+ * @param short int server_port The server port to include in the token
+ * @param int id1 Some generic associated id to store in the token
+ * @param int id2 Another generic associated id to store in the token
  *
- * @return char* The built token as a string.
+ * @return char* The built token as a string
  */
 char* build(
 	char* buffer,
@@ -288,13 +293,31 @@ char* build(
 	data.id2 = id2;
 
 	// client address
-	inet_pton(client_protocol, client_address, (client_protocol == AF_INET) ? (void *)&(data.client_ip.v4) : (void *)&(data.client_ip.v6));
+	inet_pton(
+		client_protocol,
+		client_address,
+		client_protocol == AF_INET ?
+			(void *)&(data.client_ip.v4) :
+			(void *)&(data.client_ip.v6)
+	);
 
 	// lb address
-	inet_pton(lb_protocol, lb_address, (lb_protocol == AF_INET) ? (void *)&(data.lb_ip.v4) : (void *)&(data.lb_ip.v6));
+	inet_pton(
+		lb_protocol,
+		lb_address,
+		lb_protocol == AF_INET ?
+			(void *)&(data.lb_ip.v4) :
+			(void *)&(data.lb_ip.v6)
+		);
 
 	// server address
-	inet_pton(server_protocol, server_address, (server_protocol == AF_INET) ? (void *)&(data.server_ip.v4) : (void *)&(data.server_ip.v6));
+	inet_pton(
+		server_protocol,
+		server_address,
+		server_protocol == AF_INET ?
+			(void *)&(data.server_ip.v4) :
+			(void *)&(data.server_ip.v6)
+		);
 
 	data.id1 = id1;
 	data.id2 = id2;
@@ -317,7 +340,7 @@ char* build(
 /*
  * Command line tool for generating tokens using the dtoken extension
  *
- * @return int Returns 0 on success, or 1 on failure.
+ * @return int Returns 0 on success, or 1 on failure
  */
 int main()
 {
@@ -434,7 +457,8 @@ int main()
 			break;
 		}
 
-		result = inet_pton(AF_INET6, input, &(((struct sockaddr_in6 *)&sa)->sin6_addr));
+		struct sockaddr_in6 sa6;
+		result = inet_pton(AF_INET6, input, &(((struct sockaddr_in6 *)&sa6)->sin6_addr));
 
 		// Valid IPv6
 		if (result == 1)
@@ -501,7 +525,8 @@ int main()
 			break;
 		}
 
-		result = inet_pton(AF_INET6, input, &(((struct sockaddr_in6 *)&sa)->sin6_addr));
+		struct sockaddr_in6 sa6;
+		result = inet_pton(AF_INET6, input, &(((struct sockaddr_in6 *)&sa6)->sin6_addr));
 
 		// Valid IPv6
 		if (result == 1)
@@ -568,7 +593,8 @@ int main()
 			break;
 		}
 
-		result = inet_pton(AF_INET6, input, &(((struct sockaddr_in6 *)&sa)->sin6_addr));
+		struct sockaddr_in6 sa6;
+		result = inet_pton(AF_INET6, input, &(((struct sockaddr_in6 *)&sa6)->sin6_addr));
 
 		// Valid IPv6
 		if (result == 1)
@@ -743,7 +769,26 @@ int main()
 
 	char token_buffer[(int)ceil(buffer_size / 8)];
 
-	char* token = build(token_buffer, method, time_type, timestamp, client_enabled, client_protocol, client_address, client_port, lb_enabled, lb_protocol, lb_address, lb_port, server_enabled, server_protocol, server_address, server_port, id1, id2);
+	char* token = build(
+		token_buffer,
+		method,
+		time_type,
+		timestamp,
+		client_enabled,
+		client_protocol,
+		client_address,
+		client_port,
+		lb_enabled,
+		lb_protocol,
+		lb_address,
+		lb_port,
+		server_enabled,
+		server_protocol,
+		server_address,
+		server_port,
+		id1,
+		id2
+	);
 
 	printf("\nToken: %s\n", token);
 }

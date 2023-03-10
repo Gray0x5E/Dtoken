@@ -239,7 +239,7 @@ void add_token_data(mpz_ptr token, struct token_data *data)
  * @param short int client_port The client port to include in the token
  * @param _Bool lb_enabled Whether load balancer information should be included in the token
  * @param short int lb_protocol The protocol used by the load balancer address (AF_INET or AF_INET6)
- * @param char * lb_address The load balancer IP address to include in the token
+ * @param char* lb_address The load balancer IP address to include in the token
  * @param short int lb_port The load balancer port to include in the token
  * @param _Bool server_enabled Whether server information should be included in the token
  * @param short int server_protocol The protocol used by the server address (AF_INET or AF_INET6)
@@ -686,69 +686,39 @@ int main()
 	{
 		// Output timestamp in seconds
 		//-----------------------------------------------------
-		printf("Timestamp:     %ld\n", timestamp);
+		printf("\033[1mTimestamp\033[0m: %ld\n", timestamp);
 	}
 	else
 	{
 		// Output timestamp with microseconds
 		//-----------------------------------------------------
-		printf("Timestamp:     %.6f\n", timestamp / 1000000.0);
+		printf("\033[1mTimestamp\033[0m: %.6f\n", timestamp / 1000000.0);
 	}
 
-	if (client_enabled)
-	{
-		// Output client information
-		//-----------------------------------------------------
-		printf("Client:        %s", client_address);
+	// Output client information
+	//-----------------------------------------------------
+	PRINT_ADDRESS(client_enabled, "\033[1mClient\033[0m", client_address, client_port);
 
-		if (client_port)
-		{
-			printf(":%d", client_port);
-		}
+	// Output load balancer information
+	//-----------------------------------------------------
+	PRINT_ADDRESS(lb_enabled, "\033[1mLoad balancer\033[0m", lb_address, lb_port);
 
-		printf("\n");
-	}
-
-	if (lb_enabled)
-	{
-		// Output load balancer information
-		//-----------------------------------------------------
-		printf("Load balancer: %s", lb_address);
-
-		if (lb_port)
-		{
-			printf(":%d", lb_port);
-		}
-
-		printf("\n");
-	}
-
-	if (server_enabled)
-	{
-		// Output server information
-		//-----------------------------------------------------
-		printf("Server:        %s", server_address);
-
-		if (server_port)
-		{
-			printf(":%d", server_port);
-		}
-
-		printf("\n");
-	}
+	// Output server information
+	//-----------------------------------------------------
+	PRINT_ADDRESS(server_enabled, "\033[1mServer\033[0m", server_address, server_port);
 
 	if (id1)
 	{
 		// Output generic id 1
 		//-----------------------------------------------------
-		printf("Generic id 1:       %d\n", id1);
+		printf("\033[1mGeneric id 1\033[0m: %d\n", id1);
 	}
 
 	if (id2)
 	{
 		// Output generic id 2
 		//-----------------------------------------------------
-		printf("Generic id 2:       %d\n", id2);
+		printf("\033[1mGeneric id 2\033[0m: %d\n", id2);
 	}
 
 	// Build and output token

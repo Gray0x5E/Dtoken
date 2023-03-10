@@ -77,6 +77,17 @@
 #define INET4 0 /* bit to store for AF_INET  */
 #define INET6 1 /* bit to store for AF_INET6 */
 
+#define PRINT_ADDRESS(enabled, prefix, address, port) \
+	do { \
+		if (enabled) { \
+			printf("%s: %s", prefix, address); \
+			if (port) { \
+				printf(":%d", port); \
+			} \
+			printf("\n"); \
+		} \
+	} while (0)
+
 /**
  * Represents the data included in a Dtoken request token
  *

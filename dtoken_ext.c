@@ -44,7 +44,6 @@ int is_ipv6_address(char* str)
 
 int is_valid_ip_address(const char *ip_str)
 {
-
 	if (ip_str == NULL)
 	{
 		return 0;
@@ -55,18 +54,51 @@ int is_valid_ip_address(const char *ip_str)
 
 	if (inet_pton(AF_INET, ip_str, &ipv4) == 1)
 	{
-		// Valid IPv4 address
-		return 1;
+		return 1; // Valid IPv4 address
 	}
-	else if (inet_pton(AF_INET6, ip_str, &ipv6) == 1)
+
+	if (inet_pton(AF_INET6, ip_str, &ipv6) == 1)
 	{
-		// Valid IPv6 address
-		return 1;
+		return 1; // Valid IPv6 address
+	}
+
+	return 0; // Invalid address
+}
+
+void check_address(char* addr, short int* enabled, short int* protocol, char** address)
+{
+	zval *server_vars = &PG(http_globals)[TRACK_VARS_SERVER];
+
+	if (addr)
+	{
+		if (is_ipv4_address(addr))
+		{
+			*enabled = 1;
+			*protocol = AF_INET;
+			*address = addr;
+		}
+		else if (is_ipv6_address(addr))
+		{
+			*enabled = 1;
+			*protocol = AF_INET6;
+			*address = addr;
+		}
+		else
+		{
+			*enabled = 0;
+			*protocol = AF_INET;
+			*address = "";
+		}
 	}
 	else
 	{
-		// Invalid address
-		return 0;
+		zval *zaddr;
+		if (server_vars && (zaddr = zend_hash_str_find(Z_ARRVAL_P(server_vars), ZEND_STRL("REMOTE_ADDR"))) != NULL)
+		{
+			*enabled = 1;
+			*protocol = is_ipv4_address(Z_STRVAL_P(zaddr)) == 1 ? AF_INET : AF_INET6;
+			*address = Z_STRVAL_P(zaddr);
+		}
 	}
 }
 
@@ -123,118 +155,17 @@ char* get_token(
 		else if (strcmp(request_method, "PATCH") == 0)   { method = PATCH;   }
 	}
 
-	short int client_enabled = 0;
-	short int client_protocol = AF_INET;
+	short int client_enabled = 0, client_protocol = AF_INET, client_port = 0;
 	char* client_address = "";
-	short int client_port = 0;
+	check_address(_address, &client_enabled, &client_protocol, &client_address);
 
-	short int lb_enabled = 0;
-	short int lb_protocol = AF_INET;
+	short int lb_enabled = 0, lb_protocol = AF_INET, lb_port = 0;
 	char* lb_address = "";
-	short int lb_port = 0;
+	check_address(_balancer, &lb_enabled, &lb_protocol, &lb_address);
 
-	short int server_enabled = 0;
-	short int server_protocol = AF_INET;
+	short int server_enabled = 0, server_protocol = AF_INET, server_port = 0;
 	char* server_address = "";
-	short int server_port = 0;
-
-	zval *server_vars = &PG(http_globals)[TRACK_VARS_SERVER];
-
-	if (_address)
-	{
-		if (is_ipv4_address(_address))
-		{
-			client_enabled = 1;
-			client_protocol = AF_INET;
-			client_address = _address;
-		}
-		else if (is_ipv6_address(_address))
-		{
-			client_enabled = 1;
-			client_protocol = AF_INET6;
-			client_address = _address;
-		}
-		else
-		{
-			client_enabled = 0;
-			client_protocol = AF_INET;
-			client_address = "";
-		}
-	}
-	else
-	{
-		zval *client_addr;
-		if (server_vars && (client_addr = zend_hash_str_find(Z_ARRVAL_P(server_vars), ZEND_STRL("REMOTE_ADDR"))) != NULL)
-		{
-			client_enabled = 1;
-			client_protocol = is_ipv4_address(Z_STRVAL_P(client_addr)) == 1 ? AF_INET : AF_INET6;
-			client_address = Z_STRVAL_P(client_addr);
-		}
-	}
-
-	if (_balancer)
-	{
-		if (is_ipv4_address(_balancer))
-		{
-			lb_enabled = 1;
-			lb_protocol = AF_INET;
-			lb_address = _balancer;
-		}
-		else if (is_ipv6_address(_balancer))
-		{
-			lb_enabled = 1;
-			lb_protocol = AF_INET6;
-			lb_address = _balancer;
-		}
-		else
-		{
-			lb_enabled = 0;
-			lb_protocol = AF_INET;
-			lb_address = "";
-		}
-	}
-	else
-	{
-		zval *lb_addr;
-		if (server_vars && (lb_addr = zend_hash_str_find(Z_ARRVAL_P(server_vars), ZEND_STRL("HTTP_X_TS_LB"))) != NULL)
-		{
-			lb_enabled = 1;
-			lb_protocol = is_ipv4_address(Z_STRVAL_P(lb_addr)) == 1 ? AF_INET : AF_INET6;
-			lb_address = Z_STRVAL_P(lb_addr);
-		}
-	}
-
-	if (_server)
-	{
-		if (is_ipv4_address(_server))
-		{
-			server_enabled = 1;
-			server_protocol = AF_INET;
-			server_address = _server;
-		}
-		else if (is_ipv6_address(_server))
-		{
-			server_enabled = 1;
-			server_protocol = AF_INET6;
-			server_address = _server;
-		}
-		else
-		{
-			server_enabled = 0;
-			server_protocol = AF_INET;
-			server_address = "";
-		}
-	}
-	else
-	{
-		zval *server_addr;
-		if (server_vars && (server_addr = zend_hash_str_find(Z_ARRVAL_P(server_vars), ZEND_STRL("SERVER_ADDR"))) != NULL)
-		{
-			server_enabled = 1;
-			server_protocol = is_ipv4_address(Z_STRVAL_P(server_addr)) == 1 ? AF_INET : AF_INET6;
-			server_address = Z_STRVAL_P(server_addr);
-		}
-	}
+	check_address(_server, &server_enabled, &server_protocol, &server_address);
 
 	int id1 = (_id1 != 0 ? _id1 : 0);
 	int id2 = (_id2 != 0 ? _id2 : 0);
@@ -246,15 +177,15 @@ char* get_token(
 		"client_enabled: %d\n"
 		"client_protocol: %s\n"
 		"client_address: %s\n"
-		"client_port: %s\n"
+		"client_port: %d\n"
 		"lb_enabled: %d\n"
 		"lb_protocol: %s\n"
 		"lb_address: %s\n"
-		"lb_port: %s\n"
+		"lb_port: %d\n"
 		"server_enabled: %d\n"
 		"server_protocol: %s\n"
 		"server_address: %s\n"
-		"server_port: %s\n"
+		"server_port: %d\n"
 		"id1: %d\n"
 		"id2: %d\n",
 		(time_type ? 1 : 0),

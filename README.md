@@ -5,7 +5,7 @@ Dtoken is a PHP extension written in C that generates a unique request token con
 ## Requirements
 
 - PHP development files
-- PHP 8.0 or later (to use the extension)
+- PHP 8.1 or later (to use the extension)
 - Build tools
 - C compiler
 
@@ -78,8 +78,8 @@ dtoken_build(
 	string $address = null,
 	string $balancer = null,
 	string $server = null,
-	int $user_id = null,
-	int $page_id = null
+	int $id1 = null,
+	int $id2 = null
 ): string
 ```
 
